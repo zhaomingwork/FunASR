@@ -31,10 +31,9 @@ parser.add_argument("--ngpu",
                     type=int,
                     default=1,
                     help="0 for cpu, 1 for gpu")
-parser.add_argument("--ncpu",
+parser.add_argument("--num_threads",
                     type=int,
                     default=1,
-                    help="cpu cores")
+                    help="num of threads")
 
 args = parser.parse_args()
-print(args)
