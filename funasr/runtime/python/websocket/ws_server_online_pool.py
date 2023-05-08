@@ -30,7 +30,6 @@ for i in range(args.num_threads):
                             model=args.asr_model_online,
                             model_revision='v1.0.4')
     print("total num=", args.num_threads, "loaded model ", i)
-    infer_online(audio_in=b''.join(np.zeros(int(16000),dtype=np.int16)), param_dict={"cache": dict()})
     infer_online.isused = False
     inference_pipeline_asr_online.append(infer_online)
 
@@ -50,7 +49,7 @@ async def get_avail_infer():
         if inference_pipeline_asr_online[i].isused == False:
             inference_pipeline_asr_online[i].isused = True
             mutex.release()
-            return inference_pipeline_asr_online[i],i
+            return inference_pipeline_asr_online[i]
     mutex.release()
     return None
 
@@ -69,8 +68,8 @@ async def ws_serve(websocket, path):
     websocket_users.add(websocket)
     websocket.param_dict_asr_online = {"cache": dict()}
     websocket.speek_online = Queue()
-    avail_infer,i = await get_avail_infer()
-    websocket.id=i
+    avail_infer = await get_avail_infer()
+
     if not avail_infer is None:
         websocket.infer = avail_infer
     else:
@@ -85,9 +84,6 @@ async def ws_serve(websocket, path):
             is_finished = message["is_finished"]
             if not is_finished:
                 audio = bytes(message['audio'], 'ISO-8859-1')
-                #print("audio",audio)
-                #exit(0)
-                print("rec",websocket.id,len(audio),flush=True)
                 is_speaking = message["is_speaking"]
                 websocket.param_dict_asr_online["is_final"] = not is_speaking
                 websocket.param_dict_asr_online["chunk_size"] = message[
@@ -123,12 +119,9 @@ async def ws_serve(websocket, path):
 
 def asr_online(websocket, audio_in):  # ASR推理
     if len(audio_in) > 0:
-        print("len0=",len(audio_in),flush=True)
         audio_in = load_bytes(audio_in)
-        print("len1=",len(audio_in),flush=True)
         rec_result = websocket.infer(
             audio_in=audio_in, param_dict=websocket.param_dict_asr_online)
-        print("len2=",len(audio_in),flush=True)
         if websocket.param_dict_asr_online["is_final"]:
             websocket.param_dict_asr_online["cache"] = dict()
         if "text" in rec_result:

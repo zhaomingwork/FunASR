@@ -46,6 +46,7 @@ from funasr.export.models.e2e_asr_paraformer import Paraformer as Paraformer_exp
 
 np.set_printoptions(threshold=np.inf)
 
+import threading
 
 class Speech2Text:
     """Speech2Text class
@@ -58,7 +59,9 @@ class Speech2Text:
             [(text, token, token_int, hypothesis object), ...]
 
     """
-
+    static_asr_model, static_asr_train_args=None,None
+    static_lm, static_lm_train_args=None,None
+    mutex = threading.Lock()
     def __init__(
             self,
             asr_train_config: Union[Path, str] = None,
@@ -86,9 +89,17 @@ class Speech2Text:
 
         # 1. Build ASR model
         scorers = {}
-        asr_model, asr_train_args = ASRTask.build_model_from_file(
+        Speech2Text.mutex.acquire()
+        if Speech2Text.static_asr_model is None:
+          asr_model, asr_train_args = ASRTask.build_model_from_file(
             asr_train_config, asr_model_file, cmvn_file, device
-        )
+          )
+          Speech2Text.static_asr_model,Speech2Text.static_asr_train_args=asr_model, asr_train_args
+          logging.info("load asr model")
+        else:
+          asr_model, asr_train_args=Speech2Text.static_asr_model,Speech2Text.static_asr_train_args
+          logging.info("fetch asr model")
+        Speech2Text.mutex.release()
         frontend = None
         if asr_train_args.frontend is not None and asr_train_args.frontend_conf is not None:
             frontend = WavFrontendOnline(cmvn_file=cmvn_file, **asr_train_args.frontend_conf)
@@ -109,10 +120,20 @@ class Speech2Text:
 
         # 2. Build Language model
         if lm_train_config is not None:
-            lm, lm_train_args = LMTask.build_model_from_file(
-                lm_train_config, lm_file, device
-            )
-            scorers["lm"] = lm.lm
+           Speech2Text.mutex.acquire()
+           if Speech2Text.static_lm is None:
+              lm, lm_train_args = LMTask.build_model_from_file(
+                  lm_train_config, lm_file, device
+              )
+              scorers["lm"] = lm.lm
+              Speech2Text.static_lm,Speech2Text.static_lm_train_args=lm,lm_train_args
+              logging.info("load lm model")
+           else:
+              lm,lm_train_args=Speech2Text.static_lm,Speech2Text.static_lm_train_args
+              scorers["lm"] = lm.lm
+              logging.info("fetch lm model")
+           Speech2Text.mutex.release()
+            
 
         # 3. Build ngram model
         # ngram is not supported now
