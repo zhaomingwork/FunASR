@@ -5,14 +5,14 @@
 /* 2022-2023 by zhaomingwork */
 
 // client for websocket, support multiple threads
-// ./funasr-ws-client  --server-ip <string>
+// ./funasr-wss-client  --server-ip <string>
 //                     --port <string>
 //                     --wav-path <string>
 //                     [--thread-num <int>] 
 //                     [--is-ssl <int>]  [--]
 //                     [--version] [-h]
 // example:
-// ./funasr-ws-client --server-ip 127.0.0.1 --port 8889 --wav-path test.wav --thread-num 1 --is-ssl 0
+// ./funasr-wss-client --server-ip 127.0.0.1 --port 10095 --wav-path test.wav --thread-num 1 --is-ssl 1
 
 #define ASIO_STANDALONE 1
 #include <websocketpp/client.hpp>
@@ -238,15 +238,26 @@ class WebsocketClient {
 
         // fetch wav data use asr engine api
         while (audio.Fetch(buff, len, flag) > 0) {
-            short iArray[len];
-
-            // convert float -1,1 to short -32768,32767
+            short* iArray = new short[len];
             for (size_t i = 0; i < len; ++i) {
-              iArray[i] = (short)(buff[i] * 32767);
+              iArray[i] = (short)(buff[i]*32768);
             }
+
             // send data to server
-            m_client.send(m_hdl, iArray, len * sizeof(short),
-                          websocketpp::frame::opcode::binary, ec);
+            int offset = 0;
+            int block_size = 102400;
+            while(offset < len){
+                int send_block = 0;
+                if (offset + block_size <= len){
+                    send_block = block_size;
+                }else{
+                    send_block = len - offset;
+                }
+                m_client.send(m_hdl, iArray+offset, send_block * sizeof(short),
+                    websocketpp::frame::opcode::binary, ec);
+                offset += send_block;
+            }
+
             LOG(INFO) << "sended data len=" << len * sizeof(short);
             // The most likely error that we will get is that the connection is
             // not in the right state. Usually this means we tried to send a
@@ -258,6 +269,7 @@ class WebsocketClient {
                                         "Send Error: " + ec.message());
               break;
             }
+            delete[] iArray;
             // WaitABit();
         }
         nlohmann::json jsonresult;
@@ -277,13 +289,14 @@ class WebsocketClient {
 };
 
 int main(int argc, char* argv[]) {
+
     google::InitGoogleLogging(argv[0]);
     FLAGS_logtostderr = true;
 
-    TCLAP::CmdLine cmd("funasr-ws-client", ' ', "1.0");
+    TCLAP::CmdLine cmd("funasr-wss-client", ' ', "1.0");
     TCLAP::ValueArg<std::string> server_ip_("", "server-ip", "server-ip", true,
                                            "127.0.0.1", "string");
-    TCLAP::ValueArg<std::string> port_("", "port", "port", true, "8889", "string");
+    TCLAP::ValueArg<std::string> port_("", "port", "port", true, "10095", "string");
     TCLAP::ValueArg<std::string> wav_path_("", "wav-path", 
         "the input could be: wav_path, e.g.: asr_example.wav; pcm_path, e.g.: asr_example.pcm; wav.scp, kaldi style wav list (wav_id \t wav_path)", 
         true, "", "string");
